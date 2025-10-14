@@ -2,8 +2,8 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
-from common_functions import *
 from configurations import *
+from utils import *
 
 """
 L_conj on residuals
@@ -26,13 +26,6 @@ def is_conflict(existing: Tuple[Predicate, ...], cand: Predicate) -> bool:
     return cand.feature in features_in_rule(existing)
 
 
-# def level_extend(  # Build next-level rules by adding one non-conflicting predicate
-#     base_rules: List[Rule],
-#     uni_preds: List[Predicate],
-#     resid: np.ndarray,
-#     mean_global: float,
-#     var_global: float,
-# ) -> List[Rule]:
 def level_extend(  # Build next-level rules by adding one non-conflicting predicate
     base_rules: List[Rule],
     uni_preds: List[Predicate],

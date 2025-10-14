@@ -16,8 +16,8 @@ from pandas.api.types import (
 @dataclass(frozen=True)
 class Predicate:
     feature: str
-    op: str  # one of {'<=','>','=='}  (we only use these)
-    value: Any  # threshold or category value
+    op: str  # one of {'<=','>','=='(cat)}  (we only use these)
+    value: Any
     mask: np.ndarray  # boolean array over df.index
 
     def describe(self) -> str:
@@ -43,7 +43,7 @@ class Rule:
         return " AND ".join(p.describe() for p in self.preds)
 
 
-def _quantize_threshold(t: float, step: float) -> float:
+def quantize_threshold(t: float, step: float) -> float:
     if step <= 0:
         return float(t)
     return float(np.round(t / step) * step)
@@ -168,7 +168,7 @@ def build_numeric_predicates_local(
     # score each threshold locally using masks restricted to base_mask
     scored = []
     for t in cands:
-        t_q = _quantize_threshold(float(t), step)
+        t_q = quantize_threshold(float(t), step)
         # build whole-dataset masks, then intersect with base_mask outside
         mask_le = x_all <= t_q
         mask_gt = x_all > t_q
@@ -183,7 +183,7 @@ def build_numeric_predicates_local(
     # keep best k thresholds (by absolute quality)
     scored.sort(key=lambda z: z[0], reverse=True)
     preds: List[Predicate] = []
-    for _, op, t_q, m in scored[:k_keep]:
+    for i, op, t_q, m in scored[:k_keep]:
         preds.append(Predicate(feature=col, op=op, value=t_q, mask=m))
     return preds
 
@@ -212,7 +212,7 @@ def build_all_predicates(df: pd.DataFrame) -> List[Predicate]:
     num_cols, cat_cols = infer_feature_types(df)
     preds: List[Predicate] = []
     for c in num_cols:
-        preds.extend(build_numeric_predicates(df, c, N_QUANTILES))
+        preds.extend(build_numeric_predicates(df, c, LOCAL_QUANTILES))
     for c in cat_cols:
         preds.extend(build_categorical_predicates(df, c))
     pruned = [
@@ -232,7 +232,7 @@ def plot_rule_vs_rest_boxplot(df, rule_str, res_col="Residual"):
     rule_str = rule_str.strip()
     mask = np.ones(len(df), dtype=bool)
 
-    def _boxplot_from_mask(m):
+    def boxplot_from_mask(m):
         data = [df.loc[m, res_col].values, df.loc[~m, res_col].values]
         labels = ["Subgroup", "Rest"]
         plt.figure()
@@ -261,7 +261,7 @@ def plot_rule_vs_rest_boxplot(df, rule_str, res_col="Residual"):
                     mask &= df[feat].values > v
                 else:
                     raise ValueError(f"Unsupported operator: {op}")
-        _boxplot_from_mask(mask)
+        boxplot_from_mask(mask)
         return
 
     # else treat as a single symbolic expression op threshold
@@ -285,7 +285,7 @@ def plot_rule_vs_rest_boxplot(df, rule_str, res_col="Residual"):
     vals = np.asarray(vals, dtype=float)
     thr = float(thr_str)
     mask = (vals <= thr) if op == "<=" else (vals > thr)
-    _boxplot_from_mask(mask)
+    boxplot_from_mask(mask)
 
 
 # test pvalue on rules
@@ -320,7 +320,7 @@ def permutation_pvalue(df, rule_str, res_col="Residual", n_perm=2000, seed=0):
     q_obs = q_residual_for_mask(mask, resid, mean_g, var_g)
 
     greater = 0
-    for _ in range(n_perm):
+    for i in range(n_perm):
         resid_perm = resid.copy()
         rng.shuffle(resid_perm)
         q_perm = q_residual_for_mask(mask, resid_perm, mean_g, var_g)
@@ -333,7 +333,7 @@ def prune_by_coverage(df, results_df, res_col="Residual", min_new=0.3):
     """Keep a rule if ≥ min_new fraction of its covered points are not yet covered."""
     kept = []
     covered = np.zeros(len(df), dtype=bool)
-    for _, row in results_df.sort_values(
+    for i, row in results_df.sort_values(
         "q_residual", ascending=False
     ).iterrows():
         # build mask
@@ -365,10 +365,10 @@ def prune_by_coverage(df, results_df, res_col="Residual", min_new=0.3):
 
 # Intepretibility
 
-_NUM_PAT = re.compile(r"[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?")
+NUM_PAT = re.compile(r"[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?")
 
 
-def _count_significant_digits(x_str: str) -> int:
+def count_significant_digits(x_str: str) -> int:
     # counts decimals after '.' in a numeric literal; "800.25" -> 2; "800" -> 0
     if "." in x_str.lower():
         # strip exponent part if present
@@ -377,17 +377,17 @@ def _count_significant_digits(x_str: str) -> int:
     return 0
 
 
-def _precision_penalty_from_rule(rule_str: str) -> float:
+def precision_penalty_from_rule(rule_str: str) -> float:
     # Sum 10^{-sig} over all numeric thresholds in the rule text
     penalty = 0.0
-    for m in _NUM_PAT.finditer(rule_str):
+    for m in NUM_PAT.finditer(rule_str):
         s = m.group(0)
-        sig = _count_significant_digits(s)
+        sig = count_significant_digits(s)
         penalty += 10.0 ** (-sig) if sig > 0 else 0.0
     return float(penalty)
 
 
-def _count_tokens_symbolic(rule_str: str) -> int:
+def count_tokens_symbolic(rule_str: str) -> int:
     # Very simple tokenization: variables/numbers/operators
     ops = [
         "+",
@@ -408,54 +408,53 @@ def _count_tokens_symbolic(rule_str: str) -> int:
     # count operators by occurrences, then count numbers and variable names as operands
     op_count = sum(rule_str.count(op) for op in ops)
     # count numeric literals
-    nums = len(_NUM_PAT.findall(rule_str))
+    nums = len(NUM_PAT.findall(rule_str))
     # very rough variable/identifier count: tokens of letters/underscores not in ops
     idents = len(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", rule_str))
     return op_count + nums + idents
 
 
-def _count_predicates_conj(rule_str: str) -> int:
+def count_predicates_conj(rule_str: str) -> int:
     # predicates split by '∧' or 'and' or '&'
     parts = re.split(r"\s*(?:∧|and|&&?|,)\s*", rule_str)
     return len([p for p in parts if p.strip()])
 
 
-def _count_operators(rule_str: str) -> int:
-    # arithmetic/logical operators used
+def count_operators(rule_str: str) -> int:
     ops = [
         "+",
         "-",
         "*",
         "/",
         "<=",
-        ">=",
+        # ">=",
         "<",
         ">",
         "==",
-        "=",
-        "∧",
-        "∨",
-        "&&",
+        # "=",
+        # "∧",
+        # "∨",
+        # "&&",
         "and",
     ]
     return sum(rule_str.count(op) for op in ops)
 
 
-def _depth_from_tree_rule(rule_str: str) -> int:
-    # paths like "a>1 → b<=2 → c>3"; depth = number of arrows (edges)
+def depth_from_tree_rule(rule_str: str) -> int:
+    # paths like "a>1 → b<=2 → c>3"; depth = number of edges
     if "→" in rule_str:
         return max(0, rule_str.count("→"))
     # else approximate by number of predicates - 1
-    return max(0, _count_predicates_conj(rule_str) - 1)
+    return max(0, count_predicates_conj(rule_str) - 1)
 
 
-def _splits_from_tree_rule(rule_str: str) -> int:
-    # rough: internal nodes count equals number of arrows (for a single path)
+def splits_from_tree_rule(rule_str: str) -> int:
+    # internal nodes count equals number of arrows for a single path
     return rule_str.count("→")
 
 
-def _poly_terms_and_degree(rule_str: str) -> tuple[int, int]:
-    # crude parsing: terms separated by '+' or '-' not preceded by 'e'
+def poly_terms_and_degree(rule_str: str) -> tuple[int, int]:
+    # terms separated by '+' or '-' not preceded by 'e'
     # Count occurrences of f^2 or f2 to approximate degree 2
     terms = re.split(
         r"(?<!e)([+-])", rule_str
@@ -468,7 +467,7 @@ def _poly_terms_and_degree(rule_str: str) -> tuple[int, int]:
             if isinstance(t, str) and t.strip() and t.strip() not in ["+", "-"]
         ),
     )
-    # degree: look for ^2, **2, or patterns like f2 (very approximate)
+    # degree: look for ^2, **2, or patterns like f2 - approx
     deg2 = bool(
         re.search(r"(\^2|\*\*2|[A-Za-z_][A-Za-z0-9_]*\s*2\b)", rule_str)
     )
@@ -497,11 +496,11 @@ def annotate_interpretability(df: pd.DataFrame, language: str) -> pd.DataFrame:
     n_tokens = []
 
     for r in rs:
-        n_ops.append(_count_operators(r))
-        prec.append(_precision_penalty_from_rule(r))
+        n_ops.append(count_operators(r))
+        prec.append(precision_penalty_from_rule(r))
 
         if language == "conj":
-            n_predicates.append(_count_predicates_conj(r))
+            n_predicates.append(count_predicates_conj(r))
             depth.append(0)
             n_splits.append(0)
             n_terms.append(0)
@@ -509,8 +508,8 @@ def annotate_interpretability(df: pd.DataFrame, language: str) -> pd.DataFrame:
             n_tokens.append(0)
 
         elif language == "tree":
-            d = _depth_from_tree_rule(r)
-            s = _splits_from_tree_rule(r)
+            d = depth_from_tree_rule(r)
+            s = splits_from_tree_rule(r)
             depth.append(d)
             n_splits.append(s)
             n_predicates.append(max(1, d + 1))
@@ -519,7 +518,7 @@ def annotate_interpretability(df: pd.DataFrame, language: str) -> pd.DataFrame:
             n_tokens.append(0)
 
         elif language == "poly":
-            t, deg = _poly_terms_and_degree(r)
+            t, deg = poly_terms_and_degree(r)
             n_terms.append(t)
             degree.append(deg)
             n_predicates.append(1)  # polynomial predicate <= τ
@@ -528,7 +527,7 @@ def annotate_interpretability(df: pd.DataFrame, language: str) -> pd.DataFrame:
             n_tokens.append(0)
 
         elif language == "symb":
-            tok = _count_tokens_symbolic(r)
+            tok = count_tokens_symbolic(r)
             n_tokens.append(tok)
             n_predicates.append(1)  # expression ⟂ τ
             depth.append(0)
@@ -537,8 +536,8 @@ def annotate_interpretability(df: pd.DataFrame, language: str) -> pd.DataFrame:
             degree.append(0)
 
         else:
-            # fallback: treat like conjunction
-            n_predicates.append(_count_predicates_conj(r))
+            # treat like conjunction
+            n_predicates.append(count_predicates_conj(r))
             depth.append(0)
             n_splits.append(0)
             n_terms.append(0)
@@ -585,7 +584,7 @@ def annotate_interpretability(df: pd.DataFrame, language: str) -> pd.DataFrame:
     return df
 
 
-def _pareto_mark(
+def pareto_mark(
     df: pd.DataFrame, q_col="q_residual", i_col="I_exp"
 ) -> pd.DataFrame:
     """
@@ -627,7 +626,7 @@ def apply_pareto_tradeoff(df: pd.DataFrame) -> pd.DataFrame:
         raise ValueError(
             "Call annotate_interpretability() before Pareto ranking."
         )
-    d = _pareto_mark(df, q_col="q_residual", i_col="I_exp")
+    d = pareto_mark(df, q_col="q_residual", i_col="I_exp")
     d["score"] = np.sqrt(
         d["q_residual"].astype(float) * d["I_exp"].astype(float)
     )

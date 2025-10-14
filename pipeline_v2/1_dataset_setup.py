@@ -8,6 +8,8 @@ from sklearn.model_selection import KFold
 ToDo:
 1. Add more datasets
 2. Configurable for datasets and models
+3. Configurable parameters - more
+4. Update latex with chosen values per language
 """
 
 
@@ -51,7 +53,7 @@ y_pred = model.predict(df.drop("target", axis=1))
 for actual, pred in list(zip(df["target"][:5], y_pred[:5])):
     print(f"Actual target: {actual:.1f}, Predicted target: {pred:.2f}")
 
-df["Residual_signed"] = (df["target"] - y_pred)
+df["Residual_signed"] = df["target"] - y_pred
 
 residuals = (df["target"] - y_pred) ** 2
 df["Residual"] = residuals

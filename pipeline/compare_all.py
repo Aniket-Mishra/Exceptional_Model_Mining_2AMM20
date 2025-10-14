@@ -2,13 +2,12 @@ import re
 
 import matplotlib.pyplot as plt
 import pandas as pd
-from IPython.display import display
-
 from common_functions import *
 from configurations import *
 from I_conjunction_rules import *
 from II_polynomial_rules import *
 from III_d_tree_rules import *
+from IPython.display import display
 from IV_symbolic_rules import *
 
 df = pd.read_csv(
@@ -131,6 +130,19 @@ C_symb = add_meta(results_symb, "L_symb")
 
 # Merge n rank comparison
 all_rules = pd.concat([C_conj, C_poly, C_tree, C_symb], ignore_index=True)
+
+all_under = all_rules[all_rules["delta_from_global"] > 0].copy()
+all_over = all_rules[all_rules["delta_from_global"] < 0].copy()
+all_under = all_under.sort_values("q_residual", ascending=False).reset_index(
+    drop=True
+)
+all_over = all_over.sort_values("q_residual", ascending=False).reset_index(
+    drop=True
+)
+
+all_under.to_csv("emm_all_languages_underperform.csv", index=False)
+all_over.to_csv("emm_all_languages_overperform.csv", index=False)
+
 all_rules = all_rules.sort_values("q_residual", ascending=False).reset_index(
     drop=True
 )

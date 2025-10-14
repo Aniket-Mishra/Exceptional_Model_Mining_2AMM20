@@ -1,18 +1,15 @@
-# ===== Dependency-free L_symb (symbolic-expression) subgroup miner =====
-# Builds simple expressions over numeric features and mines threshold rules using q_residual.
-
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-from common_functions import *
-from common_functions import (
-    _quantize_threshold,
-)
 from pandas.api.types import is_numeric_dtype
+from utils import *
+from utils import (
+    quantize_threshold,
+)
 
 
-def _numeric_frame(df: pd.DataFrame, exclude: set) -> pd.DataFrame:
+def numeric_frame(df: pd.DataFrame, exclude: set) -> pd.DataFrame:
     cols = [
         c for c in df.columns if c not in exclude and is_numeric_dtype(df[c])
     ]
@@ -24,7 +21,7 @@ def _numeric_frame(df: pd.DataFrame, exclude: set) -> pd.DataFrame:
     return X
 
 
-def _rank_features_by_assoc(
+def rank_features_by_assoc(
     X: pd.DataFrame, y: np.ndarray, k: int
 ) -> List[str]:
     # rank by |corr| with residuals n fall back to variance if constant
@@ -40,229 +37,243 @@ def _rank_features_by_assoc(
     return [c for c, _ in scores[: max(3, min(k, len(scores)))]]
 
 
-def _eps(x: np.ndarray) -> float:
+def eps(x: np.ndarray) -> float:
     # small stabilizer scaled to data
     s = float(np.nanstd(x))
     return 1e-8 if s == 0 else 1e-6 * s
 
 
-def _safe_div(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+def safe_div(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     with np.errstate(divide="ignore", invalid="ignore"):
         res = a / np.where(b == 0, np.nan, b)
     # replace inf/nan from division by small stabilized denom
     bad = ~np.isfinite(res)
     if bad.any():
-        res[bad] = a[bad] / (b[bad] + _eps(b))
+        res[bad] = a[bad] / (b[bad] + eps(b))
     return res
 
 
-def _gen_expressions(
-    X: pd.DataFrame, bases: List[str], max_triplets: int = 30
+def gen_expressions(
+    X: pd.DataFrame, bases: List[str], max_triplets: int = SYMB_MAX_TRIPLETS
 ) -> List[Tuple[str, Callable[[Dict[str, np.ndarray]], np.ndarray], int]]:
     """
     Returns list of (expr_str, evaluator, n_ops) with ≤3 operators (depth ≤ 2).
-    Operators allowed: +, -, *, / ; forms:
-      unary:        f
-      binary:       f1 + f2, f1 - f2, f1 * f2, f1 / f2
-      nested (≤3 ops): (f1+f2)/f3, (f1-f2)/f3, (f1*f2)/f3, (f1/f2)+f3, (f1/f2)-f3
+    Operators: +, -, *, /
+    Forms:
+      unary:   f
+      binary:  f1 + f2, f1 - f2, f2 - f1, f1 * f2, f1 / f2, f2 / f1
+      nested (≤3 ops):
+         - two-feature (if SYMB_NESTED_TWO_FEATURE): (a±b)/a, (a±b)/b, (a*b)/a, (a*b)/b, (a/b)±a, (a/b)±b
+         - three-feature (if SYMB_ALLOW_TRIPLETS and SYMB_MAX_FEATURES≥3): (a±b)/c, (a*b)/c, (a/b)±c
     """
-    exprs = []
-
-    # map feature -> vector
-    F = {c: X[c].to_numpy() for c in bases}
+    exprs: List[
+        Tuple[str, Callable[[Dict[str, np.ndarray]], np.ndarray], int]
+    ] = []
 
     # unary
     for a in bases:
         exprs.append((f"{a}", (lambda a=a: (lambda F: F[a]))(), 0))
 
     # binary
-    for i, a in enumerate(bases):
-        for j, b in enumerate(bases):
-            if j <= i:
-                continue
-            exprs += [
+    if SYMB_MAX_FEATURES >= 2:
+        for i, a in enumerate(bases):
+            for j, b in enumerate(bases):
+                if j <= i:
+                    continue
+                exprs += [
+                    (
+                        f"({a} + {b})",
+                        (lambda a=a, b=b: (lambda F: F[a] + F[b]))(),
+                        1,
+                    ),
+                    (
+                        f"({a} - {b})",
+                        (lambda a=a, b=b: (lambda F: F[a] - F[b]))(),
+                        1,
+                    ),
+                    (
+                        f"({b} - {a})",
+                        (lambda a=a, b=b: (lambda F: F[b] - F[a]))(),
+                        1,
+                    ),
+                    (
+                        f"({a} * {b})",
+                        (lambda a=a, b=b: (lambda F: F[a] * F[b]))(),
+                        1,
+                    ),
+                    (
+                        f"({a} / {b})",
+                        (lambda a=a, b=b: (lambda F: safe_div(F[a], F[b])))(),
+                        1,
+                    ),
+                    (
+                        f"({b} / {a})",
+                        (lambda a=a, b=b: (lambda F: safe_div(F[b], F[a])))(),
+                        1,
+                    ),
+                ]
+
+    # nested two-feature
+    if SYMB_NESTED_TWO_FEATURE and SYMB_MAX_FEATURES >= 2:
+        nested2 = []
+        for i, a in enumerate(bases):
+            for j, b in enumerate(bases):
+                if j == i:
+                    continue
+                nested2 += [
+                    (
+                        f"({a} + {b}) / {a}",
+                        (
+                            lambda a=a, b=b: (
+                                lambda F: safe_div(F[a] + F[b], F[a])
+                            )
+                        )(),
+                        2,
+                    ),
+                    (
+                        f"({a} + {b}) / {b}",
+                        (
+                            lambda a=a, b=b: (
+                                lambda F: safe_div(F[a] + F[b], F[b])
+                            )
+                        )(),
+                        2,
+                    ),
+                    (
+                        f"({a} - {b}) / {a}",
+                        (
+                            lambda a=a, b=b: (
+                                lambda F: safe_div(F[a] - F[b], F[a])
+                            )
+                        )(),
+                        2,
+                    ),
+                    (
+                        f"({a} - {b}) / {b}",
+                        (
+                            lambda a=a, b=b: (
+                                lambda F: safe_div(F[a] - F[b], F[b])
+                            )
+                        )(),
+                        2,
+                    ),
+                    (
+                        f"({a} * {b}) / {a}",
+                        (
+                            lambda a=a, b=b: (
+                                lambda F: safe_div(F[a] * F[b], F[a])
+                            )
+                        )(),
+                        2,
+                    ),
+                    (
+                        f"({a} * {b}) / {b}",
+                        (
+                            lambda a=a, b=b: (
+                                lambda F: safe_div(F[a] * F[b], F[b])
+                            )
+                        )(),
+                        2,
+                    ),
+                    (
+                        f"({a} / {b}) + {a}",
+                        (
+                            lambda a=a, b=b: (
+                                lambda F: safe_div(F[a], F[b]) + F[a]
+                            )
+                        )(),
+                        2,
+                    ),
+                    (
+                        f"({a} / {b}) - {b}",
+                        (
+                            lambda a=a, b=b: (
+                                lambda F: safe_div(F[a], F[b]) - F[b]
+                            )
+                        )(),
+                        2,
+                    ),
+                ]
+        exprs.extend(nested2)
+
+    # nested three-feature (triplets)
+    if SYMB_ALLOW_TRIPLETS and SYMB_MAX_FEATURES >= 3:
+        triplets: List[Tuple[str, str, str]] = []
+        for a in bases:
+            for b in bases:
+                if b == a:
+                    continue
+                for c in bases:
+                    if c == a or c == b:
+                        continue
+                    triplets.append((a, b, c))
+        triplets = triplets[:max_triplets]  # cap so things dont explode
+
+        nested3 = []
+        for a, b, c in triplets:
+            nested3 += [
                 (
-                    f"({a} + {b})",
-                    (lambda a=a, b=b: (lambda F: F[a] + F[b]))(),
-                    1,
+                    f"({a} + {b}) / {c}",
+                    (
+                        lambda a=a, b=b, c=c: (
+                            lambda F: safe_div(F[a] + F[b], F[c])
+                        )
+                    )(),
+                    2,
                 ),
                 (
-                    f"({a} - {b})",
-                    (lambda a=a, b=b: (lambda F: F[a] - F[b]))(),
-                    1,
+                    f"({a} - {b}) / {c}",
+                    (
+                        lambda a=a, b=b, c=c: (
+                            lambda F: safe_div(F[a] - F[b], F[c])
+                        )
+                    )(),
+                    2,
                 ),
                 (
-                    f"({b} - {a})",
-                    (lambda a=a, b=b: (lambda F: F[b] - F[a]))(),
-                    1,
+                    f"({a} * {b}) / {c}",
+                    (
+                        lambda a=a, b=b, c=c: (
+                            lambda F: safe_div(F[a] * F[b], F[c])
+                        )
+                    )(),
+                    2,
                 ),
                 (
-                    f"({a} * {b})",
-                    (lambda a=a, b=b: (lambda F: F[a] * F[b]))(),
-                    1,
+                    f"({a} / {b}) + {c}",
+                    (
+                        lambda a=a, b=b, c=c: (
+                            lambda F: safe_div(F[a], F[b]) + F[c]
+                        )
+                    )(),
+                    2,
                 ),
                 (
-                    f"({a} / {b})",
-                    (lambda a=a, b=b: (lambda F: _safe_div(F[a], F[b])))(),
-                    1,
+                    f"({a} / {b}) - {c}",
+                    (
+                        lambda a=a, b=b, c=c: (
+                            lambda F: safe_div(F[a], F[b]) - F[c]
+                        )
+                    )(),
+                    2,
                 ),
                 (
-                    f"({b} / {a})",
-                    (lambda a=a, b=b: (lambda F: _safe_div(F[b], F[a])))(),
-                    1,
+                    f"({a} / {b}) * {c}",
+                    (
+                        lambda a=a, b=b, c=c: (
+                            lambda F: safe_div(F[a], F[b]) * F[c]
+                        )
+                    )(),
+                    2,
                 ),
             ]
+        exprs.extend(nested3)
 
-    # # nested (≤3 ops)
-    # nested = []
-    # # pick up to max_triplets distinct triplets to control explosion
-    # triplets = []
-    # for a in bases:
-    #     for b in bases:
-    #         if b == a:
-    #             continue
-    #         for c in bases:
-    #             if c == a or c == b:
-    #                 continue
-    #             triplets.append((a, b, c))
-    # triplets = triplets[:max_triplets]
-
-    # for a, b, c in triplets:
-    #     nested += [
-    #         (
-    #             f"({a} + {b}) / {c}",
-    #             (
-    #                 lambda a=a, b=b, c=c: (
-    #                     lambda F: _safe_div(F[a] + F[b], F[c])
-    #                 )
-    #             )(),
-    #             2,
-    #         ),
-    #         (
-    #             f"({a} - {b}) / {c}",
-    #             (
-    #                 lambda a=a, b=b, c=c: (
-    #                     lambda F: _safe_div(F[a] - F[b], F[c])
-    #                 )
-    #             )(),
-    #             2,
-    #         ),
-    #         (
-    #             f"({a} * {b}) / {c}",
-    #             (
-    #                 lambda a=a, b=b, c=c: (
-    #                     lambda F: _safe_div(F[a] * F[b], F[c])
-    #                 )
-    #             )(),
-    #             2,
-    #         ),
-    #         (
-    #             f"({a} / {b}) + {c}",
-    #             (
-    #                 lambda a=a, b=b, c=c: (
-    #                     lambda F: _safe_div(F[a], F[b]) + F[c]
-    #                 )
-    #             )(),
-    #             2,
-    #         ),
-    #         (
-    #             f"({a} / {b}) - {c}",
-    #             (
-    #                 lambda a=a, b=b, c=c: (
-    #                     lambda F: _safe_div(F[a], F[b]) - F[c]
-    #                 )
-    #             )(),
-    #             2,
-    #         ),
-    #     ]
-    # exprs.extend(nested)
-
-    # nested (≤3 ops), but LIMIT to at most TWO distinct features
-    nested = []
-    for i, a in enumerate(bases):
-        for j, b in enumerate(bases):
-            if j == i:
-                continue
-            # forms that reuse only {a,b}
-            nested += [
-                (
-                    f"({a} + {b}) / {a}",
-                    (
-                        lambda a=a, b=b: (
-                            lambda F: _safe_div(F[a] + F[b], F[a])
-                        )
-                    )(),
-                    2,
-                ),
-                (
-                    f"({a} + {b}) / {b}",
-                    (
-                        lambda a=a, b=b: (
-                            lambda F: _safe_div(F[a] + F[b], F[b])
-                        )
-                    )(),
-                    2,
-                ),
-                (
-                    f"({a} - {b}) / {a}",
-                    (
-                        lambda a=a, b=b: (
-                            lambda F: _safe_div(F[a] - F[b], F[a])
-                        )
-                    )(),
-                    2,
-                ),
-                (
-                    f"({a} - {b}) / {b}",
-                    (
-                        lambda a=a, b=b: (
-                            lambda F: _safe_div(F[a] - F[b], F[b])
-                        )
-                    )(),
-                    2,
-                ),
-                (
-                    f"({a} * {b}) / {a}",
-                    (
-                        lambda a=a, b=b: (
-                            lambda F: _safe_div(F[a] * F[b], F[a])
-                        )
-                    )(),
-                    2,
-                ),
-                (
-                    f"({a} * {b}) / {b}",
-                    (
-                        lambda a=a, b=b: (
-                            lambda F: _safe_div(F[a] * F[b], F[b])
-                        )
-                    )(),
-                    2,
-                ),
-                (
-                    f"({a} / {b}) + {a}",
-                    (
-                        lambda a=a, b=b: (
-                            lambda F: _safe_div(F[a], F[b]) + F[a]
-                        )
-                    )(),
-                    2,
-                ),
-                (
-                    f"({a} / {b}) - {b}",
-                    (
-                        lambda a=a, b=b: (
-                            lambda F: _safe_div(F[a], F[b]) - F[b]
-                        )
-                    )(),
-                    2,
-                ),
-            ]
-    exprs.extend(nested)
-
-    # de-duplicate by string
+    # de-dup by string and cap
     seen = set()
-    uniq = []
+    uniq: List[
+        Tuple[str, Callable[[Dict[str, np.ndarray]], np.ndarray], int]
+    ] = []
     for s, fn, nops in exprs:
         if s not in seen:
             uniq.append((s, fn, nops))
@@ -274,17 +285,18 @@ def _gen_expressions(
 
 def mine_lsymb_rules_light(
     df: pd.DataFrame,
-    res_col: str = "Residual",
-    feature_exclude: set = {"Residual", "Residual_CV", "MEDV"},
-    top_features: int | None = None,  # if None, use SYMB_TOP_FEATURES
-    max_triplets: int | None = None,  # if None, use SYMB_MAX_TRIPLETS
-    thresholds_per_expr: int
-    | None = None,  # if None, use SYMB_THRESHOLDS_PER_EXPR
+    res_col: str = RES_COL,
+    feature_exclude: Optional[set] = None,
+    top_features: int | None = None,
+    max_triplets: int | None = None,
+    thresholds_per_expr: int | None = None,
     min_support: int = 10,
     top_k: int = TOP_K_PER_LANGUAGE,
 ) -> pd.DataFrame:
     assert res_col in df.columns, f"Residual column '{res_col}' not found."
-    X = _numeric_frame(df, exclude=feature_exclude | {res_col})
+    if feature_exclude is None:
+        feature_exclude = EXCLUDE_COLS
+    X = numeric_frame(df, exclude=feature_exclude | {res_col})
     y = df[res_col].to_numpy()
     mean_g = float(np.nanmean(y))
     var_g = float(np.nanvar(y))
@@ -294,16 +306,16 @@ def mine_lsymb_rules_light(
         max_triplets = SYMB_MAX_TRIPLETS
     if thresholds_per_expr is None:
         thresholds_per_expr = SYMB_THRESHOLDS_PER_EXPR
+        # thresholds_per_expr = LOCAL_QUANTILES
 
-    # shortlist features most associated with residuals
-    bases = _rank_features_by_assoc(X, y, k=top_features)
+    # features most associated with residuals
+    bases = rank_features_by_assoc(X, y, k=top_features)
     if len(bases) < 2:
         raise ValueError(
             "Not enough numeric features to build symbolic expressions."
         )
 
-    # generate simple expr (≤3 operators)
-    exprs = _gen_expressions(X, bases, max_triplets=max_triplets)
+    exprs = gen_expressions(X, bases, max_triplets=max_triplets)
 
     rows = []
     for expr_str, fn, nops in exprs:
@@ -344,7 +356,7 @@ def mine_lsymb_rules_light(
         #         )
 
         # for thr in thr_list:
-        #     thr_q = _quantize_threshold(float(thr), THRESH_RESOLUTION)
+        #     thr_q = quantize_threshold(float(thr), THRESH_RESOLUTION)
         #     for op in (("<="), (">")) + (("==",) if SYMB_ALLOW_EQ else ()):
         #         if op == "<=":
         #             mask = vals <= thr_q
@@ -378,7 +390,7 @@ def mine_lsymb_rules_light(
         #         )
 
         for thr in thr_list:
-            thr_q = _quantize_threshold(float(thr), THRESH_RESOLUTION)
+            thr_q = quantize_threshold(float(thr), THRESH_RESOLUTION)
             for op in ("<=", ">"):  # numeric-only: NO equality
                 mask = (vals <= thr_q) if op == "<=" else (vals > thr_q)
                 n, mean_s, q_signed, q_abs = compute_q_residual_signed(
