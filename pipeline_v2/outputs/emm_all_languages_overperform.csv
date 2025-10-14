@@ -1,0 +1,3 @@
+rule,length,size,mean_residual,delta_from_global,q_residual,n_predicates,n_operators,depth,n_splits,precision_penalty,n_terms,degree,n_tokens,complexity,I_inv,I_exp,expressiveness,pareto,score,q_perm,p_value,language,leaf_id,q_signed,expr,operator,threshold,n_ops
+DIS > 1.34 AND RM <= 8.28 AND RM <= 6.77 AND DIS > 1.42,4,392,0.7867787474489811,-0.6525398533415319,2.9395054396984426,1,6,0,0,0.04,0,0,0,7.0,0.125,0.007446583070924344,0.0,False,0.14795023299795254,2.903091825071507,0.000999000999000999,L_tree,6.0,,,,,
+DIS > 1.34 AND RM <= 8.28 AND RM > 6.77 AND INDUS <= 6.66,4,71,1.4202335633802732,-0.019085037410239813,0.036588649821838806,1,6,0,0,0.04,0,0,0,7.0,0.125,0.007446583070924344,0.0,False,0.01650637514269211,0.036588649821838806,0.98001998001998,L_tree,8.0,,,,,
