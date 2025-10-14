@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from configurations import *
 from sklearn.datasets import fetch_openml
@@ -69,6 +70,7 @@ df["Residual_CV"] = compute_cv_residuals(
 )
 
 
+os.makedirs("dataset_with_residuals", exist_ok=True)
 df.to_csv(
     f"dataset_with_residuals/{file_name}_with_residuals.csv", index=False
 )
