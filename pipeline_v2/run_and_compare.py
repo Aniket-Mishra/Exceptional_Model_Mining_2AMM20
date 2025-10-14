@@ -233,10 +233,10 @@ def main():
         results_symb, df, RES_COL, language_tag="symb"
     )
 
-    results_conj.to_csv(out_dir / "1_lconj.csv", index=False)
-    results_poly.to_csv(out_dir / "2_lpoly.csv", index=False)
-    results_tree.to_csv(out_dir / "3_ltree.csv", index=False)
-    results_symb.to_csv(out_dir / "4_lsymb.csv", index=False)
+    results_conj.to_csv(f"{out_dir}/1_lconj.csv", index=False)
+    results_poly.to_csv(f"{out_dir}/2_lpoly.csv", index=False)
+    results_tree.to_csv(f"{out_dir}/3_ltree.csv", index=False)
+    results_symb.to_csv(f"{out_dir}/4_lsymb.csv", index=False)
 
     # Combine all languages (compare_all behavior)
     all_rules = (
@@ -256,11 +256,11 @@ def main():
     # under/over lists
     all_under, all_over = split_directional(all_rules)
     all_under.to_csv(
-        out_dir / "emm_all_languages_underperform.csv", index=False
+        f"{out_dir}/emm_all_languages_underperform.csv", index=False
     )
-    all_over.to_csv(out_dir / "emm_all_languages_overperform.csv", index=False)
+    all_over.to_csv(f"{out_dir}/emm_all_languages_overperform.csv", index=False)
 
-    all_rules.to_csv(out_dir / "emm_all_languages_results.csv", index=False)
+    all_rules.to_csv(f"{out_dir}/emm_all_languages_results.csv", index=False)
     # print("\nTop 10 by q_residual across languages:\n")
     # cols = [
     #     "language",
@@ -291,7 +291,7 @@ def main():
         )
 
     pf = pareto_front(all_rules)
-    pf.to_csv(out_dir / "emm_pareto_front.csv", index=False)
+    pf.to_csv(f"{out_dir}/emm_pareto_front.csv", index=False)
 
     # # Plots saved to outputs # this is gpt, we gotta use plotly when we get time.
     # plt.figure()
@@ -310,7 +310,7 @@ def main():
     # plt.title("EMM: Quality vs Interpretability across languages")
     # plt.legend()
     # plt.tight_layout()
-    # plt.savefig(out_dir / "quality_vs_interpretability.png", dpi=160)
+    # plt.savefig(f"{out_dir}/quality_vs_interpretability.png", dpi=160)
     # plt.close()
 
     # plt.figure()
@@ -321,7 +321,7 @@ def main():
     # plt.title("Coverage vs Error (by language)")
     # plt.legend()
     # plt.tight_layout()
-    # plt.savefig(out_dir / "coverage_vs_error.png", dpi=160)
+    # plt.savefig(f"{out_dir}/coverage_vs_error.png", dpi=160)
     # plt.close()
 
 
