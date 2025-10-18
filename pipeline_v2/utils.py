@@ -365,8 +365,6 @@ def prune_by_coverage(df, results_df, res_col="Residual", min_new=0.3):
 
 # Intepretibility
 
-NUM_PAT = re.compile(r"[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?")
-
 
 def count_significant_digits(x_str: str) -> int:
     # counts decimals after '.' in a numeric literal; "800.25" -> 2; "800" -> 0

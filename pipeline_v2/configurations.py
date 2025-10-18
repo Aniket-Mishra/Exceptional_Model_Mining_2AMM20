@@ -1,3 +1,4 @@
+import re
 from typing import Dict
 
 
@@ -12,7 +13,10 @@ dataset_information = {
     "boston": {
         "file_name": "boston_housing",
         "target": "MEDV",
-    }
+    },
+    "forestfire": {"file_name": "forestfires", "target": "area"},
+    "auto_mpg": {"file_name": "auto-mpg", "target": "class"},
+    "cmc": {"file_name": "cmc", "target": "Wife_Age"},
 }
 
 SPLIT_DIRECTIONAL_LISTS = True  # sep list for under/over fit
@@ -69,7 +73,7 @@ CATEGORICAL_AS_OBJECT = True  # object dype as categorical
 
 # poly rune
 POLY_BASES: Dict[str, set] = {}
-MAX_RULE_LEN = 2
+MAX_RULE_LEN_POLY = 2
 
 # tree rune
 LTREE_MAX_DEPTH = 4  # 3 gave barely any rules (4-6)
@@ -95,3 +99,6 @@ SYMB_MAX_TRIPLETS = 40  # so that we don't create like a zillion
 # # cap on # of x operator expressions to generate
 # SYMB_MAX_DEEP3 = 20
 # SYMB_MAX_DEEP4 = 10
+
+# for interpretibility
+NUM_PAT = re.compile(r"[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?")
