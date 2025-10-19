@@ -34,51 +34,6 @@ def compute_cv_residuals(
     return (df[target_col].to_numpy() - oos_pred) ** 2
 
 
-# file_name = dataset_information["boston"]["file_name"]
-# target = dataset_information["boston"]["target"]
-
-# # Boston
-# boston = fetch_openml(name="boston", version=1, as_frame=True)
-# df = boston.frame
-
-# # Col name to target cuz i no wan retype
-# df.rename(columns={f"{target}": "target"}, inplace=True)
-
-# # Other datasets
-
-
-# model = RandomForestRegressor(
-#     random_state=DEFAULT_RANDOM_STATE, n_estimators=NUM_ESTIMATORS
-# )
-# model.fit(df.drop("target", axis=1), df["target"])
-
-# y_pred = model.predict(df.drop("target", axis=1))
-
-# for actual, pred in list(zip(df["target"][:5], y_pred[:5])):
-#     print(f"Actual target: {actual:.1f}, Predicted target: {pred:.2f}")
-
-# df["Residual_signed"] = df["target"] - y_pred
-
-# residuals = (df["target"] - y_pred) ** 2
-# df["Residual"] = residuals
-
-# # build CV residuals and re-mine
-# feature_cols = [c for c in df.columns if c not in {"target", "Residual"}]
-# df["Residual_CV"] = compute_cv_residuals(
-#     df,
-#     feature_cols,
-#     target_col="target",
-#     n_splits=NUM_SPLITS,
-#     seed=DEFAULT_RANDOM_STATE,
-# )
-
-
-# os.makedirs("dataset_with_residuals", exist_ok=True)
-# df.to_csv(
-#     f"dataset_with_residuals/{file_name}_with_residuals.csv", index=False
-# )
-
-
 for dataset_name, data_information in dataset_information.items():
     print(dataset_name)
     file_name = data_information["file_name"]
@@ -94,7 +49,6 @@ for dataset_name, data_information in dataset_information.items():
         df = pd.read_csv(
             "/Users/aniket/github/Exceptional_Model_Mining_2AMM20/datasets/forestfires.csv"
         )
-        # Do strings to integer conversion.
         month_map = {
             "jan": 1,
             "feb": 2,
@@ -147,6 +101,30 @@ for dataset_name, data_information in dataset_information.items():
                 "Contraceptive_Method",
             ],
         )
+    elif file_name == "year_prediction_msd":
+        df = pd.read_csv(
+            "/Users/aniket/github/Exceptional_Model_Mining_2AMM20/datasets/YearPredictionMSD.txt",
+            header=None,
+        )
+        cols = []
+        cols.append("year")
+
+        for i in range(1, 13):
+            cols.append(f"timbre_avg_{i}")
+
+        cov_names = []
+        for i in range(1, 13):
+            for j in range(i, 13):
+                cov_names.append(f"timbre_cov_{i}_{j}")
+
+        assert len(cov_names) == 78
+
+        cols.extend(cov_names)
+        df.columns = cols
+        df["year"] = df["year"].astype(np.int16)
+        timbre_cols = [c for c in df.columns if c.startswith("timbre_")]
+        df[timbre_cols] = df[timbre_cols].astype(np.float32)
+
     else:
         print("You messed sth up dumdum. Everything is hardcoded BWAHAHAHA")
         continue

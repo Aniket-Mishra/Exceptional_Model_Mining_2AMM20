@@ -17,6 +17,10 @@ dataset_information = {
     "forestfire": {"file_name": "forestfires", "target": "area"},
     "auto_mpg": {"file_name": "auto-mpg", "target": "class"},
     "cmc": {"file_name": "cmc", "target": "Wife_Age"},
+    "year_prediction_msd": {
+        "file_name": "year_prediction_msd",
+        "target": "year",
+    },
 }
 
 SPLIT_DIRECTIONAL_LISTS = True  # sep list for under/over fit
