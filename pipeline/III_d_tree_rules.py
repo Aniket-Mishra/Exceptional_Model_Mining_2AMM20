@@ -2,14 +2,12 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-from common_functions import *
 from configurations import *
 from sklearn.tree import DecisionTreeRegressor
+from utils import *
 
-# shallow decision-tree subgroup miner
 
-
-def _q_residual(
+def q_residual(
     mask: np.ndarray, resid: np.ndarray, mean_g: float, var_g: float
 ) -> Tuple[int, float, float]:
     n = int(mask.sum())
@@ -21,15 +19,13 @@ def _q_residual(
     return n, mean_s, q
 
 
-# --- numeric features only (keeps rules readable) ---
-def _numeric_feature_frame(df: pd.DataFrame, exclude: set) -> pd.DataFrame:
+def numeric_feature_frame(df: pd.DataFrame, exclude: set) -> pd.DataFrame:
     from pandas.api.types import is_numeric_dtype
 
     cols = [
         c for c in df.columns if c not in exclude and is_numeric_dtype(df[c])
     ]
     X = df[cols].copy()
-    # Coerce to float for tree safety
     for c in cols:
         X[c] = pd.to_numeric(X[c], errors="coerce")
     # X = ( ## ugly deprication warning
@@ -41,12 +37,12 @@ def _numeric_feature_frame(df: pd.DataFrame, exclude: set) -> pd.DataFrame:
     return X
 
 
-# --- extract human-readable path for a given leaf ---
-def _extract_rule_from_leaf(
+# extract human-readable path for a given leaf
+def extract_rule_from_leaf(
     tree: DecisionTreeRegressor, feature_names: List[str], leaf_id: int
 ) -> Tuple[str, int]:
     t = tree.tree_
-    # Reconstruct a path by walking back from leaf: we can do a DFS to find all root->leaf paths once and cache
+    # recreate by dfs root to leaf
     paths = []
 
     def dfs(node_id, path):
@@ -63,7 +59,6 @@ def _extract_rule_from_leaf(
         right_clause = (feat_idx, ">", thr)
         dfs(t.children_right[node_id], path + [right_clause])
 
-    # Build all paths once
     if not hasattr(tree, "_all_paths_cache"):
         dfs(0, [])
         tree._all_paths_cache = {leaf: path for leaf, path in paths}
@@ -73,13 +68,11 @@ def _extract_rule_from_leaf(
     clauses = []
     for feat_idx, op, thr in path:
         feat = feature_names[feat_idx]
-        # round threshold for readability
-        thr_disp = float(np.round(thr, 4))
+        thr_disp = float(np.round(thr, 2))
         clauses.append(f"{feat} {op} {thr_disp}")
     return " AND ".join(clauses), len(clauses)
 
 
-# --- main miner ---
 def mine_ltree_rules(
     df: pd.DataFrame,
     res_col: str = RES_COL,
@@ -90,17 +83,15 @@ def mine_ltree_rules(
     exclude_cols: Optional[set] = None,
 ) -> pd.DataFrame:
     if exclude_cols is None:
-        exclude_cols = {res_col, "MEDV", "Residual_CV"}
+        exclude_cols = EXCLUDE_COLS
     assert res_col in df.columns, f"Residual column '{res_col}' not found."
 
-    # Build X (numeric-only) and y
-    X = _numeric_feature_frame(df, exclude=exclude_cols)
+    X = numeric_feature_frame(df, exclude=exclude_cols)
     feature_names = list(X.columns)
     if len(feature_names) == 0:
         raise ValueError("No numeric features available for L_tree mining.")
     y = df[res_col].to_numpy()
 
-    # Fit shallow tree on residuals
     tree = DecisionTreeRegressor(
         max_depth=max_depth,
         min_samples_leaf=min_leaf,
@@ -115,12 +106,12 @@ def mine_ltree_rules(
     mean_g = float(np.nanmean(resid))
     var_g = float(np.nanvar(resid))
 
-    # Aggregate leaves -> groups
+    # leaves to grp agg
     groups = {}
     for i, lid in enumerate(leaf_ids):
         groups.setdefault(lid, []).append(i)
 
-    # Score each leaf subgroup
+    # leaf subgroup score
     rows = []
     for lid, idxs in groups.items():
         idxs = np.array(idxs, dtype=int)
@@ -128,8 +119,8 @@ def mine_ltree_rules(
             continue
         mask = np.zeros(len(df), dtype=bool)
         mask[idxs] = True
-        size, mean_s, q = _q_residual(mask, resid, mean_g, var_g)
-        rule_str, length = _extract_rule_from_leaf(tree, feature_names, lid)
+        size, mean_s, q = q_residual(mask, resid, mean_g, var_g)
+        rule_str, length = extract_rule_from_leaf(tree, feature_names, lid)
         rows.append(
             {
                 "rule": rule_str,
@@ -169,7 +160,6 @@ def mine_ltree_rules(
     return out
 
 
-# --- optional: mask builder from rule string to reuse existing plot helper ---
 def mask_from_rule_string(df: pd.DataFrame, rule_str: str) -> np.ndarray:
     mask = np.ones(len(df), dtype=bool)
     if not rule_str.strip():
