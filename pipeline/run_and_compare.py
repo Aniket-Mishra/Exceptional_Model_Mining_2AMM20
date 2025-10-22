@@ -273,6 +273,11 @@ def main():
         all_rules.to_csv(
             f"{out_dir}/emm_all_languages_results_{file_name}.csv", index=False
         )
+
+        all_rules.loc[all_rules["pareto"] == True].to_csv(
+            "outputs/emm_all_pareto_front_true.csv", index=False
+        )
+
         # print("\nTop 10 by q_residual across languages:\n")
         # cols = [
         #     "language",
@@ -303,7 +308,10 @@ def main():
             )
 
         pf = pareto_front(all_rules)
-        pf.to_csv(f"{out_dir}/emm_pareto_front.csv", index=False)
+        pf.to_csv(
+            f"{out_dir}/emm_pareto_front_on_all_combined_rules.csv",
+            index=False,
+        )
 
         # # # Plots saved to outputs # this is gpt, we gotta use plotly when we get time.
         # # plt.figure()
