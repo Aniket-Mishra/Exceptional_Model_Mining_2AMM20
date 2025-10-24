@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import glob
+import os
 from pathlib import Path
 
 import numpy as np
@@ -239,10 +241,21 @@ def main():
             results_symb, df, RES_COL, language_tag="symb"
         )
 
-        results_conj.to_csv(f"{out_dir}/1_lconj_{file_name}.csv", index=False)
-        results_poly.to_csv(f"{out_dir}/2_lpoly_{file_name}.csv", index=False)
-        results_tree.to_csv(f"{out_dir}/3_ltree_{file_name}.csv", index=False)
-        results_symb.to_csv(f"{out_dir}/4_lsymb_{file_name}.csv", index=False)
+        dataset_dir = os.path.join(out_dir, file_name)
+        os.makedirs(dataset_dir, exist_ok=True)
+
+        results_conj.to_csv(
+            f"{dataset_dir}/1_lconj_{file_name}.csv", index=False
+        )
+        results_poly.to_csv(
+            f"{dataset_dir}/2_lpoly_{file_name}.csv", index=False
+        )
+        results_tree.to_csv(
+            f"{dataset_dir}/3_ltree_{file_name}.csv", index=False
+        )
+        results_symb.to_csv(
+            f"{dataset_dir}/4_lsymb_{file_name}.csv", index=False
+        )
 
         # Combine all languages (compare_all behavior)
         all_rules = (
@@ -262,20 +275,17 @@ def main():
         # under/over lists
         all_under, all_over = split_directional(all_rules)
         all_under.to_csv(
-            f"{out_dir}/emm_all_languages_underperform_{file_name}.csv",
+            f"{dataset_dir}/emm_all_languages_underperform_{file_name}.csv",
             index=False,
         )
         all_over.to_csv(
-            f"{out_dir}/emm_all_languages_overperform_{file_name}.csv",
+            f"{dataset_dir}/emm_all_languages_overperform_{file_name}.csv",
             index=False,
         )
 
         all_rules.to_csv(
-            f"{out_dir}/emm_all_languages_results_{file_name}.csv", index=False
-        )
-
-        all_rules.loc[all_rules["pareto"] == True].to_csv(
-            "outputs/emm_all_pareto_front_true.csv", index=False
+            f"{dataset_dir}/emm_all_languages_results_{file_name}.csv",
+            index=False,
         )
 
         # print("\nTop 10 by q_residual across languages:\n")
@@ -309,7 +319,7 @@ def main():
 
         pf = pareto_front(all_rules)
         pf.to_csv(
-            f"{out_dir}/emm_pareto_front_on_all_combined_rules.csv",
+            f"{dataset_dir}/emm_pareto_front_on_all_combined_rules_{file_name}.csv",
             index=False,
         )
 
@@ -343,6 +353,26 @@ def main():
         # # plt.tight_layout()
         # # plt.savefig(f"{out_dir}/coverage_vs_error.png", dpi=160)
         # # plt.close()
+
+    # combined stuff:
+    all_languages_results = glob.glob(
+        "outputs/*/emm_pareto_front_on_all_combined_rules_*.csv",
+        recursive=True,
+    )
+
+    df = pd.DataFrame()
+    for file in all_languages_results:
+        dfx = pd.read_csv(file)
+        name = file.split("_")[-1].split(".")[0]
+        dfx["dataset"] = name
+        df = pd.concat([df, dfx])
+
+    print(df["language"].value_counts().sum())
+    print(df["dataset"].value_counts().sum())
+    df.loc[df["pareto"] == True].to_csv(
+        "outputs/emm_all_pareto_front_true.csv", index=False
+    )
+    df.to_csv("outputs/emm_all_pareto_front.csv", index=False)
 
 
 if __name__ == "__main__":

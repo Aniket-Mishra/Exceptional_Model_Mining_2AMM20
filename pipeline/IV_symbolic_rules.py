@@ -294,10 +294,24 @@ def mine_lsymb_rules_light(
     top_k: int = TOP_K_PER_LANGUAGE,
 ) -> pd.DataFrame:
     assert res_col in df.columns, f"Residual column '{res_col}' not found."
+    # if feature_exclude is None:
+    #     feature_exclude = EXCLUDE_COLS
+    # feature_exclude = EXCLUDE_COLS  # Hardcoding, target still sneaks in
+
     if feature_exclude is None:
-        feature_exclude = EXCLUDE_COLS
-    X = numeric_frame(df, exclude=feature_exclude | {res_col})
+        feature_exclude = set()
+
+    all_exclusions = feature_exclude | EXCLUDE_COLS | {res_col}
+
+    X = numeric_frame(df, exclude=all_exclusions | {res_col})
     y = df[res_col].to_numpy()
+
+    print(f"Excluded: {all_exclusions}")
+    print(f"X columns: {list(X.columns)}")
+    assert not any(col in X.columns for col in EXCLUDE_COLS), (
+        f"Target leaked! {[c for c in EXCLUDE_COLS if c in X.columns]}"
+    )
+
     mean_g = float(np.nanmean(y))
     var_g = float(np.nanvar(y))
     if top_features is None:
@@ -334,61 +348,6 @@ def mine_lsymb_rules_light(
             continue
         qs = np.linspace(0, 1, thresholds_per_expr + 2)[1:-1]  # 25/50/75 for 3
         thr_list = np.unique(np.quantile(finite_vals, qs, method="linear"))
-        # for thr in thr_list:
-        #     for op in ("<=", ">"):
-        #         mask = (vals <= thr) if op == "<=" else (vals > thr)
-        #         n, mean_s, q = compute_q_residual(mask, y, mean_g, var_g)
-        #         if n < min_support:
-        #             continue
-        #         rows.append(
-        #             {
-        #                 "rule": f"{expr_str} {op} {float(thr):.6g}",
-        #                 "size": n,
-        #                 "length": nops + 1,  # crude complexity proxy
-        #                 "mean_residual": mean_s,
-        #                 "delta_from_global": mean_s - mean_g,
-        #                 "q_residual": q,
-        #                 "expr": expr_str,
-        #                 "operator": op,
-        #                 "threshold": float(thr),
-        #                 "n_ops": nops,
-        #             }
-        #         )
-
-        # for thr in thr_list:
-        #     thr_q = quantize_threshold(float(thr), THRESH_RESOLUTION)
-        #     for op in (("<="), (">")) + (("==",) if SYMB_ALLOW_EQ else ()):
-        #         if op == "<=":
-        #             mask = vals <= thr_q
-        #         elif op == ">":
-        #             mask = vals > thr_q
-        #         else:  # "=="
-        #             # use a tight band around thr_q to approximate equality
-        #             eps = max(THRESH_RESOLUTION, 1e-12)
-        #             mask = (vals >= (thr_q - eps / 2)) & (
-        #                 vals <= (thr_q + eps / 2)
-        #             )
-        #         n, mean_s, q_signed, q_abs = compute_q_residual_signed(
-        #             mask, y, mean_g, var_g
-        #         )
-        #         if n < min_support:
-        #             continue
-        #         rows.append(
-        #             {
-        #                 "rule": f"{expr_str} {op} {thr_q:.6g}",
-        #                 "size": n,
-        #                 "length": nops + 1,
-        #                 "mean_residual": mean_s,
-        #                 "delta_from_global": mean_s - mean_g,
-        #                 "q_residual": q_abs,
-        #                 "q_signed": q_signed,
-        #                 "expr": expr_str,
-        #                 "operator": op,
-        #                 "threshold": float(thr_q),
-        #                 "n_ops": nops,
-        #             }
-        #         )
-
         for thr in thr_list:
             thr_q = quantize_threshold(float(thr), THRESH_RESOLUTION)
             for op in ("<=", ">"):  # numeric-only: NO equality
